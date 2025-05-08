@@ -27,15 +27,47 @@ def fit_4pl_and_ic50(df, x_col, y_col, group_col=None, return_plotly=False):
 
         try:
             p0 = [max(y), 1, np.median(x), min(y)]
-            popt, _ = curve_fit(four_param_logistic, x, y, p0, maxfev=10000)
+            popt, pcov = curve_fit(four_param_logistic, x, y, p0, maxfev=10000)
             ic50 = popt[2]
+            from sklearn.metrics import r2_score
+            y_pred = four_param_logistic(x, *popt)
+            r2 = r2_score(y, y_pred)
+
             results[str(group)] = {
-                "a": popt[0], "b": popt[1], "c (IC50)": ic50, "d": popt[3]
+                "a": popt[0],
+                "b": popt[1],
+                "c (IC50)": ic50,
+                "d": popt[3],
+                "R2": r2
             }
+
             ic50_dict[str(group)] = ic50
 
             x_fit = np.linspace(min(x), max(x), 100)
             y_fit = four_param_logistic(x_fit, *popt)
+
+            from scipy.stats import t
+
+            # Compute 95% confidence interval band
+            dof = max(0, len(x) - len(popt))
+            alpha = 0.05
+            tval = t.ppf(1.0 - alpha / 2., dof) if dof > 0 else 1.96
+
+            # Estimate gradient (Jacobian) for CI propagation
+            J = np.zeros((len(x_fit), len(popt)))
+            eps = 1e-8
+            for i in range(len(popt)):
+                dp = np.zeros_like(popt)
+                dp[i] = eps
+                y_hi = four_param_logistic(x_fit, *(popt + dp))
+                y_lo = four_param_logistic(x_fit, *(popt - dp))
+                J[:, i] = (y_hi - y_lo) / (2 * eps)
+
+            se_fit = np.sqrt(np.sum(J @ pcov * J, axis=1))
+            ci_upper = y_fit + tval * se_fit
+            ci_lower = y_fit - tval * se_fit
+
+
 
             if return_plotly:
                 fig = go.Figure()
@@ -46,6 +78,7 @@ def fit_4pl_and_ic50(df, x_col, y_col, group_col=None, return_plotly=False):
                 plots[str(group)] = fig
 
                 overlay_fig.add_trace(go.Scatter(x=x_fit, y=y_fit, mode="lines", name=f"{group}"))
+
             else:
                 plots[str(group)] = None
         except Exception as e:

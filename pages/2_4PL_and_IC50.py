@@ -24,10 +24,15 @@ results, plots, overlay_fig, ic50_dict = fit_4pl_and_ic50(df, x_col, y_col, grou
 st.plotly_chart(overlay_fig, use_container_width=True)
 
 st.markdown("### Individual Fit Results")
+
 for key in results:
-    st.subheader(f"Group: {key}")
+    st.markdown(f"### 4PL Fit for Group: {key}")
+    r2 = results[key].get("R2")
+    if r2 is not None:
+        st.markdown(f"**R² = {r2:.3f}**")
     st.write(results[key])
     st.plotly_chart(plots[key], use_container_width=True)
+
 
 # Save IC50s in session state for downstream reuse
 if group_col:
