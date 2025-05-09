@@ -156,3 +156,72 @@ else:
     anova_table = run_anova(None, input_df[x_cols], merged["Y"])
     st.dataframe(anova_table)
     st.download_button("Download Design + Output", merged.to_csv(index=False), file_name="rsm_input_output.csv")
+
+
+
+
+# Add this to the end of your existing code in `pages/3_RSM_and_Regression.py`
+
+# Optimization Section
+import streamlit as st
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import PolynomialFeatures
+
+st.markdown("---")
+st.subheader("🚀 Optimization Module")
+
+if "model" in locals() and model is not None:
+    st.info("This module searches for input settings that minimize the IC50 value using the fitted RSM model.")
+
+    resolution = 100  # fixed high resolution for finer optimization
+
+    # Generate search grid
+    bounds = {}
+    for var in x_cols:
+        col_data = merged[var].astype(float)
+        bounds[var] = (col_data.min(), col_data.max())
+
+    grid = pd.DataFrame({})
+    for var in x_cols:
+        grid[var] = np.linspace(bounds[var][0], bounds[var][1], resolution)
+
+    mesh = np.meshgrid(*[grid[col] for col in x_cols])
+    flat_grid = pd.DataFrame({var: mesh[i].ravel() for i, var in enumerate(x_cols)})
+
+    poly = PolynomialFeatures(degree=2, include_bias=False)
+    X_poly = poly.fit_transform(flat_grid)
+    preds = model.predict(X_poly)
+
+    flat_grid["Predicted_Y"] = preds
+    best_row = flat_grid.loc[preds.argmin()]
+
+    st.markdown("### ✅ Optimal Settings to **Minimize IC50**")
+    st.write(best_row.to_frame().rename(columns={0: "Value"}))
+
+    st.markdown("### 📈 Visual Confirmation")
+    if len(x_cols) == 2:
+        import plotly.express as px
+        fig_opt = px.scatter_3d(flat_grid, x=x_cols[0], y=x_cols[1], z="Predicted_Y",
+                                color="Predicted_Y", opacity=0.6, title="RSM Prediction Surface")
+        fig_opt.add_scatter3d(x=[best_row[x_cols[0]]], y=[best_row[x_cols[1]]], z=[best_row["Predicted_Y"]],
+                              mode="markers", marker=dict(size=6, color="red"), name="Optimal")
+        st.plotly_chart(fig_opt, use_container_width=True)
+    elif len(x_cols) == 1:
+        import plotly.graph_objects as go
+        fig_1d = go.Figure()
+        fig_1d.add_trace(go.Scatter(x=flat_grid[x_cols[0]], y=flat_grid["Predicted_Y"], mode="lines", name="Prediction"))
+        fig_1d.add_trace(go.Scatter(x=[best_row[x_cols[0]]], y=[best_row["Predicted_Y"]],
+                                    mode="markers", name="Optimal", marker=dict(color="red", size=8)))
+        fig_1d.update_layout(title="Optimization Curve")
+        st.plotly_chart(fig_1d, use_container_width=True)
+    else:
+        st.warning("Optimization visualization is only supported for 1 or 2 input variables.")
+else:
+    st.warning("Please fit a model first to enable optimization.")
+
+# (Rest of PDF export code continues below...)
+
+from fpdf import FPDF
+# ... rest of existing PDF generation logic ...
