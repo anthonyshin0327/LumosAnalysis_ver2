@@ -221,7 +221,66 @@ if "model" in locals() and model is not None:
 else:
     st.warning("Please fit a model first to enable optimization.")
 
-# (Rest of PDF export code continues below...)
+# Extrapolated Optimization Section
+st.markdown("---")
+st.subheader("🧭 Optimization with 30% Extrapolation Window")
 
-from fpdf import FPDF
-# ... rest of existing PDF generation logic ...
+if "model" in locals() and model is not None:
+    st.info("Searching for optimal input values with 30% extrapolation beyond original bounds.")
+
+    extrap_bounds = {}
+    for var in x_cols:
+        col_data = merged[var].astype(float)
+        min_val, max_val = col_data.min(), col_data.max()
+        range_val = max_val - min_val
+        extrap_bounds[var] = (
+            min_val - 0.3 * range_val,
+            max_val + 0.3 * range_val
+        )
+
+    extrap_grid = pd.DataFrame({})
+    for var in x_cols:
+        extrap_grid[var] = np.linspace(extrap_bounds[var][0], extrap_bounds[var][1], resolution)
+
+    extrap_mesh = np.meshgrid(*[extrap_grid[col] for col in x_cols])
+    extrap_flat = pd.DataFrame({var: extrap_mesh[i].ravel() for i, var in enumerate(x_cols)})
+
+    X_poly_extrap = poly.fit_transform(extrap_flat)
+    preds_extrap = model.predict(X_poly_extrap)
+
+    extrap_flat["Predicted_Y"] = preds_extrap
+    best_row_extrap = extrap_flat.loc[preds_extrap.argmin()]
+
+    st.markdown("### ✅ Optimal Settings with Extrapolation")
+    st.write(best_row_extrap.to_frame().rename(columns={0: "Value"}))
+
+    st.markdown("### 📉 Visual Confirmation (Extrapolated Region)")
+    if len(x_cols) == 2:
+        fig_extrap = px.scatter_3d(extrap_flat, x=x_cols[0], y=x_cols[1], z="Predicted_Y",
+                                   color="Predicted_Y", opacity=0.6,
+                                   title="RSM Prediction with 10% Extrapolation")
+        fig_extrap.add_scatter3d(
+            x=[best_row_extrap[x_cols[0]]],
+            y=[best_row_extrap[x_cols[1]]],
+            z=[best_row_extrap["Predicted_Y"]],
+            mode="markers",
+            marker=dict(size=6, color="red"),
+            name="Optimal"
+        )
+        st.plotly_chart(fig_extrap, use_container_width=True)
+    elif len(x_cols) == 1:
+        fig_1d_extrap = go.Figure()
+        fig_1d_extrap.add_trace(go.Scatter(x=extrap_flat[x_cols[0]], y=extrap_flat["Predicted_Y"],
+                                           mode="lines", name="Prediction"))
+        fig_1d_extrap.add_trace(go.Scatter(x=[best_row_extrap[x_cols[0]]],
+                                           y=[best_row_extrap["Predicted_Y"]],
+                                           mode="markers", name="Optimal",
+                                           marker=dict(color="red", size=8)))
+        fig_1d_extrap.update_layout(title="Extrapolated Optimization Curve")
+        st.plotly_chart(fig_1d_extrap, use_container_width=True)
+    else:
+        st.warning("Extrapolated visualization only supported for 1 or 2 inputs.")
+else:
+    st.warning("Please fit a model first to run extrapolated optimization.")
+
+
