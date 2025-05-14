@@ -30,34 +30,40 @@ x_col = st.selectbox("Select concentration (X-axis) column", df.columns)
 y_col = st.selectbox("Select signal (Y-axis) column", df.columns)
 group_col = st.selectbox("Optional grouping column", [None] + list(df.columns))
 
-st.markdown("### Combined Plot by Group")
+# Run 4PL fitting and compute summary data
 results, plots, overlay_fig, ic50_dict = fit_4pl_and_ic50(df, x_col, y_col, group_col, return_plotly=True)
 
-st.plotly_chart(overlay_fig, use_container_width=True)
 
-st.markdown("### Individual Fit Results")
-cv_summary = {}
-ic50_summary = {}
-cv_raw = []
 
-for key in results:
-    st.markdown(f"### 4PL Fit for Group: {key}")
-    r2 = results[key].get("R2")
-    mean_cv = results[key].get("Mean CV (%)")
-    ic50_val = results[key].get("c (IC50)")
-    if r2 is not None:
-        st.markdown(f"**R² = {r2:.3f}**")
-    if mean_cv is not None:
-        st.markdown(f"**Mean CV% = {mean_cv:.2f}**")
-        cv_summary[key] = mean_cv
-    if ic50_val is not None:
-        ic50_summary[key] = ic50_val
+with st.expander("🔍 Individual Fit Results"):
+    # Display the combined overlay plot at the top
+    st.markdown("### Combined Overlay Plot by Group")
+    st.plotly_chart(overlay_fig, use_container_width=True)
+    cv_summary = {}
+    ic50_summary = {}
+    cv_raw = []
 
-    st.write(results[key])
-    st.plotly_chart(plots[key], use_container_width=True)
+    for key in results:
+        st.markdown(f"### 4PL Fit for Group: {key}")
+        r2 = results[key].get("R2")
+        mean_cv = results[key].get("Mean CV (%)")
+        ic50_val = results[key].get("c (IC50)")
+        if r2 is not None:
+            st.markdown(f"**R² = {r2:.3f}**")
+        if mean_cv is not None:
+            st.markdown(f"**Mean CV% = {mean_cv:.2f}**")
+            cv_summary[key] = mean_cv
+        if ic50_val is not None:
+            ic50_summary[key] = ic50_val
 
-    for row in results[key].get("CV by Concentration (%)", []):
+        st.write(results[key])
+        st.plotly_chart(plots[key], use_container_width=True)
+
+        for row in results[key].get("CV by Concentration (%)", []):
+            cv_raw.append({"Group": key, "Concentration": row["Concentration"], "CV (%)": row["CV (%)"]})
         cv_raw.append({"Group": key, "Concentration": row["Concentration"], "CV (%)": row["CV (%)"]})
+
+# Combined Summary Plots
 
 # CV% per concentration bar chart (colored by concentration)
 if cv_raw:
@@ -69,8 +75,6 @@ if cv_raw:
         fig.add_trace(go.Bar(x=subset["Group"], y=subset["CV (%)"], name=f"{conc}"))
     fig.update_layout(barmode="group", xaxis_title="Group", yaxis_title="CV (%)", title="CV% by Group and Progesterone Concentration")
     st.plotly_chart(fig, use_container_width=True)
-
-# Summary plot: Mean CV% by group
 if cv_summary:
     st.markdown("### Mean CV% Summary by Group")
     summary_fig = go.Figure()
