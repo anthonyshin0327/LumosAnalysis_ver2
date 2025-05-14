@@ -1,4 +1,3 @@
-# core/four_param_fit.py
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -33,12 +32,22 @@ def fit_4pl_and_ic50(df, x_col, y_col, group_col=None, return_plotly=False):
             y_pred = four_param_logistic(x, *popt)
             r2 = r2_score(y, y_pred)
 
+            # Compute CV% across each concentration level (technical replicate precision)
+            subset["x"] = subset[x_col].astype(float)
+            subset["y"] = subset[y_col].astype(float)
+            cv_per_level = subset.groupby("x")["y"].agg(["mean", "std"])
+            cv_per_level["cv"] = (cv_per_level["std"] / cv_per_level["mean"]).replace([np.inf, -np.inf], np.nan) * 100
+            cv_by_concentration = cv_per_level["cv"].dropna().reset_index().rename(columns={"x": "Concentration", "cv": "CV (%)"})
+            mean_cv = np.nanmean(cv_by_concentration["CV (%)"]) if not cv_by_concentration.empty else np.nan
+
             results[str(group)] = {
                 "a": popt[0],
                 "b": popt[1],
                 "c (IC50)": ic50,
                 "d": popt[3],
-                "R2": r2
+                "R2": r2,
+                "Mean CV (%)": mean_cv,
+                "CV by Concentration (%)": cv_by_concentration.to_dict(orient="records")
             }
 
             ic50_dict[str(group)] = ic50
@@ -67,8 +76,6 @@ def fit_4pl_and_ic50(df, x_col, y_col, group_col=None, return_plotly=False):
             ci_upper = y_fit + tval * se_fit
             ci_lower = y_fit - tval * se_fit
 
-
-
             if return_plotly:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=x, y=y, mode="markers", name="Raw Data"))
@@ -78,9 +85,9 @@ def fit_4pl_and_ic50(df, x_col, y_col, group_col=None, return_plotly=False):
                 plots[str(group)] = fig
 
                 overlay_fig.add_trace(go.Scatter(x=x_fit, y=y_fit, mode="lines", name=f"{group}"))
-
             else:
                 plots[str(group)] = None
+
         except Exception as e:
             results[str(group)] = {"error": str(e)}
             ic50_dict[str(group)] = np.nan
