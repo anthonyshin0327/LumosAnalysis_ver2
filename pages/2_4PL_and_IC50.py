@@ -37,22 +37,25 @@ st.plotly_chart(overlay_fig, use_container_width=True)
 
 st.markdown("### Individual Fit Results")
 cv_summary = {}
+ic50_summary = {}
 cv_raw = []
 
 for key in results:
     st.markdown(f"### 4PL Fit for Group: {key}")
     r2 = results[key].get("R2")
     mean_cv = results[key].get("Mean CV (%)")
+    ic50_val = results[key].get("c (IC50)")
     if r2 is not None:
         st.markdown(f"**R² = {r2:.3f}**")
     if mean_cv is not None:
         st.markdown(f"**Mean CV% = {mean_cv:.2f}**")
         cv_summary[key] = mean_cv
+    if ic50_val is not None:
+        ic50_summary[key] = ic50_val
 
     st.write(results[key])
     st.plotly_chart(plots[key], use_container_width=True)
 
-    # Collect per-concentration CVs for barplot
     for row in results[key].get("CV by Concentration (%)", []):
         cv_raw.append({"Group": key, "Concentration": row["Concentration"], "CV (%)": row["CV (%)"]})
 
@@ -74,6 +77,59 @@ if cv_summary:
     summary_fig.add_trace(go.Bar(x=list(cv_summary.keys()), y=list(cv_summary.values()), name="Mean CV%"))
     summary_fig.update_layout(xaxis_title="Group", yaxis_title="Mean CV%", title="Average CV% Across Progesterone Levels")
     st.plotly_chart(summary_fig, use_container_width=True)
+
+# Summary plot: IC50 by group
+if ic50_summary:
+    st.markdown("### IC50 Summary by Group")
+
+    # Prepare data sorted by IC50 ascending
+    sorted_ic50 = sorted(ic50_summary.items(), key=lambda x: x[1])
+    groups_sorted = [x[0] for x in sorted_ic50]
+    ic50_values = [x[1] for x in sorted_ic50]
+
+    # Determine best (lowest) IC50 group for highlighting and annotation
+    best_group = groups_sorted[0]
+    best_ic50 = ic50_values[0]
+
+    # Compute analytical range: ~25% to 75% response from 4PL S-curve, approximate ±1 log from IC50
+    from numpy import log10, power
+    range_min = best_ic50 / 10
+    range_max = best_ic50 * 10
+
+    # Create horizontal barplot with best group in red
+    ic50_fig = go.Figure()
+    for idx, (g, v) in enumerate(sorted_ic50[::-1]):  # Reverse so smallest is at top
+        color = "crimson" if g == best_group else None
+        ic50_fig.add_trace(go.Bar(
+            x=[v],
+            y=[f"{idx+1}. {g}"],  # Label groups numerically
+            orientation="h",
+            name=g,
+            marker_color=color,
+            text=f"IC50 = {v:.2f}",
+            textposition="auto"
+        ))
+
+    subtitle = f"The group {best_group} has the best sensitivity at IC50 = {best_ic50:.2f} with analytical range of {range_min:.2f}–{range_max:.2f}"
+    ic50_fig.update_layout(
+        title={"text": "IC50 by Group", "x": 0.5, "xanchor": "center"},
+        xaxis_title="IC50",
+        yaxis_title="Group (ascending IC50)",
+        title_font_size=20,
+        margin=dict(l=100, r=40, t=60, b=40),
+        annotations=[
+            dict(
+                text=subtitle,
+                xref="paper", yref="paper",
+                x=0.5, y=1.08,
+                showarrow=False,
+                font=dict(size=12)
+            )
+        ],
+        showlegend=False,
+        bargap=0.05  # Reduce gap between bars
+    )
+    st.plotly_chart(ic50_fig, use_container_width=True)
 
 # Save IC50s in session state for downstream reuse
 if group_col:
