@@ -72,39 +72,71 @@ with st.expander("Show/Hide Full Data and Derived Columns", expanded=False):
     else:
         st.info("Original columns 'TLH' and/or 'CLH' not found in the loaded data. Skipping TLH/CLH-based derived feature calculation on this page.")
     
-    # IMPORTANT: For the 5PL fitting, use the df that has the derived columns added (df_page2_local)
-    # Or, if you prefer the 5PL function to not see these page-2-specific derived cols, pass the original `df` from session state.
-    # For consistency, let's assume the 5PL function should operate on the most complete df available on this page.
-    df_for_fitting = df_page2_local # Use this df for column selection and fitting.
+    df_for_fitting = df_page2_local 
     
 st.markdown("---")
 
+# --- Debugging Data Types ---
+with st.expander("DEBUG: DataFrame for Fitting - Data Types", expanded=False):
+    st.write("Below are the data types of the columns in the DataFrame being used to populate the selection dropdowns. Ensure your intended X and Y columns are numeric (e.g., int64, float64).")
+    if 'df_for_fitting' in locals() and not df_for_fitting.empty:
+        st.dataframe(df_for_fitting.dtypes.astype(str).rename('Data Type'), use_container_width=True)
+    else:
+        st.warning("DataFrame for fitting is not available or is empty at this point.")
+
 # --- Column Selection for 5PL Fit (using df_for_fitting) ---
 st.markdown("### 2. Select Columns for 5PL Fitting")
-# Filter for numeric columns for X and Y axes from the DataFrame prepared for fitting
-numeric_cols = df_for_fitting.select_dtypes(include=np.number).columns.tolist()
-# Grouping column can be numeric or categorical
-all_cols = df_for_fitting.columns.tolist()
 
-if not numeric_cols:
-    st.error("No numeric columns found in the data available for fitting. Please check your data processing on Page 1 or the uploaded file.")
+numeric_cols = []
+all_cols = []
+
+if 'df_for_fitting' in locals() and not df_for_fitting.empty:
+    numeric_cols = df_for_fitting.select_dtypes(include=np.number).columns.tolist()
+    all_cols = df_for_fitting.columns.tolist() 
+else:
+    st.error("Data for fitting is not available. Please ensure data is loaded correctly from Page 1 or via direct upload on this page.")
     st.stop()
 
-# Try to pre-select based on common names if they exist, otherwise default to first available
+
+if not numeric_cols:
+    st.error(
+        "CRITICAL ERROR: No numeric columns were found in the prepared data. "
+        "The 5PL fitting requires numeric data for X (concentration) and Y (signal) axes. "
+        "Please check the 'DEBUG: DataFrame for Fitting - Data Types' expander above. "
+        "Ensure the columns you intend to use for X and Y are of a numeric type (e.g., float64, int64). "
+        "You may need to go back to Page 1 to ensure correct data types or clean the uploaded data."
+    )
+    st.stop()
+
+# Now, numeric_cols is guaranteed to be non-empty if we reach here.
 def get_col_index(cols_list, target_name, default_index=0):
     try:
         return cols_list.index(target_name)
     except ValueError:
-        return default_index if cols_list else 0 # default_index if list not empty, else 0
+        # Ensure default_index is valid for the cols_list
+        if not cols_list: return 0 # Should not happen if numeric_cols check above is effective
+        return min(default_index, len(cols_list) - 1) if default_index < len(cols_list) else 0
 
-x_col_default_idx = get_col_index(numeric_cols, "progesterone", 0) # Example: try to find "progesterone"
-y_col_default_idx = get_col_index(numeric_cols, "TLH_normalized", 1 if len(numeric_cols) > 1 else 0) # Example
+x_col_default_idx = get_col_index(numeric_cols, "progesterone", 0) 
+y_col_default_idx = get_col_index(numeric_cols, "TLH_normalized", min(1, len(numeric_cols)-1) if len(numeric_cols) > 1 else 0)
 
 x_col = st.selectbox("Select **concentration (X-axis)** column (must be numeric)", numeric_cols, index=x_col_default_idx)
 y_col = st.selectbox("Select **signal (Y-axis)** column (must be numeric)", numeric_cols, index=y_col_default_idx)
 
-group_col_options = [None] + all_cols
-group_col_default_idx = get_col_index(group_col_options, "group", 0) # Example: try to find "group"
+group_col_options = [None] + all_cols 
+group_col_default_idx = 0
+if all_cols: 
+    # Find 'group' in all_cols (which includes non-numeric) for the group_col_options list
+    try:
+        group_idx_in_all_cols = all_cols.index("group")
+        # The first element in group_col_options is None, so add 1
+        group_col_default_idx = group_idx_in_all_cols + 1 
+    except ValueError:
+        group_col_default_idx = 0 # Default to None if 'group' not found
+else: # If all_cols is empty, group_col_options will be [None]
+    group_col_default_idx = 0
+
+
 group_col = st.selectbox("Optional: Select **grouping** column (for separate fits per group)", group_col_options, index=group_col_default_idx)
 
 
@@ -118,7 +150,6 @@ st.markdown("### 3. 5PL Fit Results")
 
 if st.button("Run 5PL Fitting and Analysis", type="primary"):
     with st.spinner("Performing 5PL fitting... This may take a moment."):
-        # Pass df_for_fitting which includes any page-2 derived columns
         results, plots, overlay_fig, ic50_dict = fit_5pl_and_ic50(
             df_for_fitting, x_col, y_col, group_col, return_plotly=True
         )
@@ -129,7 +160,7 @@ if st.button("Run 5PL Fitting and Analysis", type="primary"):
     st.session_state['5pl_ic50_dict'] = ic50_dict
     st.success("5PL Fitting Complete!")
 
-# --- Display Results (No changes from here downwards in this section's logic) ---
+# --- Display Results ---
 if '5pl_results' in st.session_state:
     results = st.session_state['5pl_results']
     plots = st.session_state['5pl_plots']
@@ -158,7 +189,6 @@ if '5pl_results' in st.session_state:
                            "d (Max Asymptote)", "g (Asymmetry Factor)", "R2", "Mean CV (%)"]
             display_cols = [p for p in param_order if p in params_df.columns]
             
-            # Dynamically create formatters for available columns to avoid errors if a param is missing
             float_formatters = {}
             for p_name, fmt_str in [("a (Min Asymptote)", "{:.3e}"), ("c (IC50)", "{:.3e}"), ("d (Max Asymptote)", "{:.3e}")]:
                 if p_name in display_cols: float_formatters[p_name] = fmt_str
@@ -228,7 +258,7 @@ if '5pl_results' in st.session_state:
             st.plotly_chart(ic50_bar_fig, use_container_width=True)
             if group_col: st.session_state["ic50_by_group"] = ic50_dict 
             else:
-                single_ic50 = ic50_dict.get("all_data") # Backend uses "all_data" if no group_col
+                single_ic50 = ic50_dict.get("all_data") 
                 if single_ic50 is not None: st.session_state["ic50_by_group"] = {"all_data": single_ic50}
         else: st.warning("No valid IC50 values were found to plot the summary.")
 else:
